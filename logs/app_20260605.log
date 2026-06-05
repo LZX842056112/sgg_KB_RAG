@@ -1,0 +1,10 @@
+2026-06-05 20:55:54.138 | INFO     | __main__            :<module>       :158  - 【测试】logger.py内部调用（仅测试，业务模块调用会显示正确文件名）
+2026-06-05 20:55:54.323 | WARNING  | __main__            :<module>       :161  - 【测试】logger.py内部调用（仅测试，业务模块调用会显示正确文件名）
+2026-06-05 20:55:54.326 | ERROR    | __main__            :<module>       :162  - 【测试】logger.py内部调用（仅测试，业务模块调用会显示正确文件名）
+2026-06-05 20:55:54.329 | ERROR    | __main__            :<module>       :170  - 【测试】捕获到业务异常，输出完整堆栈信息
+Traceback (most recent call last):
+
+> File "D:\Projects\SGG\PythonProject16\app\core\logger.py", line 167, in <module>
+    result = 10 / 0
+
+ZeroDivisionError: division by zero
