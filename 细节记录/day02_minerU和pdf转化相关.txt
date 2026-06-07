@@ -1,0 +1,79 @@
+
+
+ 1. 理解minerU的使用
+    申请api key
+    查看核心接口 : 1.批量申请url地址接口 2. 文件上传接口 3. 轮询获取结果接口
+
+ 2. 宏观分析下pdf_md节点的流程
+    节点作用: node_pdf_to_md  将pdf转成md,并且保存和存储,同时修改state相关的参数
+    入参:  [pdf_path:str :Path   local_dir:str :Path 默认的存储文件地址(项目/output) ]
+    出参:  [md_path:str  md_content:str]
+    步骤:
+       1. 日志+进行中的任务记录 add_running_task
+       2. step_1_validate_paths 校验pdf和输出地址
+       3. step_2_upload_and_poll minerU进行交互
+       4. step_3_download_and_extract 下载提取和解压
+       5. 根据md地址读取对应md_content内容,并且更新state
+       6. 日志+完成的任务记录  add_done_task
+ 3. 细化具体的步骤
+    step_1_validate_paths 校验pdf和输出地址
+      入参: state
+      出参: pdf_path_obj [Path]  local_dir_obj [Path]
+      步骤:
+         1. state获取对应的地址
+         2. 进行非空校验(pdf_path -> none -> 结束 | local_dir 给与默认地址)
+         3. 将两个参数转成Path (str -> Path )
+         4. 判断pdf_path_obj是否有文件,local_dir_path 是否存在文件夹
+            没有文件->抛出异常
+            没有文件夹 -> 创建文件mkdir
+         5. 返回两个路径地址
+    step_2_upload_and_poll minerU进行交互
+       入参: pdf_path_obj
+       出参: zip_url (str)
+       步骤:
+         1. 参数校验 (minerU -> 检查下miner url和key)
+         2. 申请上传地址 (minerU) [batch_id]
+         3. 向执行地址进行上传文件
+         4. 轮询获取返回结果(zip_url) [batch_id]
+         5. 返回zip_url
+    step_3_download_and_extract 下载提取和解压
+       入参: zip_url local_dir_path  pdf_path_obj/pdf_path_obj.stem
+       出参: 新的md_path_obj [Path]
+       步骤:
+         1. 向指定zip地址发起请求获取响应response
+         2. 将响应数据写到本地磁盘 [local_dir_path/pdf_path_obj.stem/stem.zip]
+         3. 先清空解压文件夹的原文件
+         4. 再次解压即可(避免出现脏数据)
+         5. 检查是否存在md文件
+         6. 进行md文件的命名确定 [xx.pdf -> full.md -> xx.md]
+         7. 返回md_path_obj地址
+
+ 4. minio使用
+    1. 安装minio docker [社区版本 / 无法设置桶的权限]
+    2. minio的基本可视化操作
+       登录 -> minioadmin
+       创建 -> 桶
+       权限 -> 上传 账号和密码 访问 不需要
+       上传 -> 文件上传
+    3. minio的三个核心参数
+       端点 -> minio服务器的地址 http://ip:9000
+       桶   -> 区分项目的
+       对象 -> 存储的文件
+       访问地址: 端点+桶+对象名
+    4. 写minio的使用的工具类
+       登录
+       创建桶
+       设置权限
+       上传文件
+       删除文件
+
+ 今日目标:
+    1. ragflow的源码给大家 -> 各种解析的思路 (下课之前 10分钟)
+    2. 总结下节点使用技术点
+       minerU api接口的使用流程 (申请 上传 轮询获取返回结果)
+       Path对象的常用属性和方法:  .name .stem .suffix .read_text .read_bytes writer_text writer_bytes
+       shutil好用的方法: shutil.unpack_archive 解压  shutil.rmtree shutil.make_archive shutil.copy mv unlink rmdir
+       requests请求工具: get / post put delete (url,headers,data,json,timeout) -> requests.Session() 有什么作用
+                        response -> response.status_code  / .json() .text .content
+    3. 实现代码(node_pdf_to_md) [两次]
+    4. 封装下minio的使用的工具类 https://www.minio.org.cn/docs/minio/linux/developers/python/API.html#set_bucket_policy
