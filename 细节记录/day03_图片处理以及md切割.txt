@@ -1,0 +1,74 @@
+
+
+1. node_md_img节点流程分析
+   作用: 将本地的图片上传到minio服务器,识别图片的内容转成文本! 替换md的内容
+   入参: md_content 被替换  md_path 找到对应的images
+   出参: md_content 替换后的md_content继续作为切割的材料  备份md_content md_path 新的
+   宏观步骤:
+       1. 进行任务的管理 running_task
+       2. 进行参数校验和获取材料 step_1_get_content
+       3. 扫描图片的上下文 step_2_scan_images
+       4. 调用视觉模型,传入图片的对应的上下文,获取图的文本内容 step_3_image_summary
+       5. 将图片文件传入到minio服务器,并且进行md中的图片替换(描述 网络地址) step_4_upload_images_replace
+       6. 将新的md内容进行备份处理 step_5_backup_md_file
+       7. 更新state信息 md_path md_content
+       8. 进行任务的管理 done_task
+   细化步骤:
+       1. 进行参数校验和获取材料 step_1_get_content
+       入参: state [md_content md_path]
+       出参: md_content , md_path_obj:Path , images_dir_obj : Object
+       步骤:
+            1. 获取md_content 和 md_path
+            2. 非空校验 (为空就异常 ValueError)
+            3. md_path 转成 md_path_obj Path
+            4. md_path_obj 获取 images所在的文件夹  .parent / images
+
+       2. step_2_scan_images
+       作用: 找到图片的本身信息和图片的上下文信息
+       入参: md_content ,  images_dir_obj
+       出参: [("图片名.xx","图片地址",(上文 -> 100,下文 -> 100))]
+       步骤:
+            1. 获取图片文件夹中所有图片对象
+            2. 循环遍历图片对象
+            3. 定义对应的正则规则 ![](图片名)
+            4. md中进行正在匹配 Match = re.search(md)
+            5. Match对象获取图片的坐标信息 ( .span() .star() .end()  .group() )
+            6. md中截取上文和下文 md_content [ star-100 : star]   [end , end+100]
+            7. 拼接结果内容 (对象.name , str(对象) , (上文,下文))
+
+       3. step_3_image_summary
+       作用: 使用视觉模型识别图片描述内容
+       入参: [("图片名.xx","图片地址",(上文 -> 100,下文 -> 100))]   md_path_obj.stem (图片所在的文件夹的名字)
+       出参: dict {图片名 : 图片的总结和描述}
+       步骤:
+             1. 准备工作
+                获取模型客户端对象
+             2. 循环上次获取图片的上下文
+             3. 封装提示词
+             4. 使用模型执行
+             5. 获取返回结果 装到 dict中
+             6. 返回结果
+      4.将图片文件传入到minio服务器,并且进行md中的图片替换(描述 网络地址) step_4_upload_images_replace
+       作用: 将图片传递到minio,拼接网络地址,联合混合模型返回的图片描述,一起替换md_content内容
+       入参: md_content  [("图片名.xx","图片地址",(上文 -> 100,下文 -> 100))] dict {图片名 : 图片的总结和描述}  md_path_obj.stem
+       出参: md_content 替换后的  ![](本地地址) -> ![summary](网络地址)
+       步骤:
+            1.获取minio的客户端对象 minio_client
+            2.删除原文件名对应的minio对象
+            3.循环"图片地址"地址向minio服务器传递文件,并且拼接(端点/桶名/对象名)和记录地址 {图片名:图片地址}
+            4. {图片名:图片地址}   {图片名 : 图片的总结和描述} -> 合并到一起 -> {图片名 : (图片描述和总结,图片地址)}
+            5. md_content内容替换,循环处理和替换即可 正则 |  rep.sub("要替换进入的内容",md_content)
+            6. 最终返回md_content
+
+2. 模型限速处理
+
+3. 文档切割思路
+
+今日目标:
+   1. node_md_img节点 (2边)
+   2. 技术细节
+       minio的使用 (查询,删除,上传,地址拼接)
+       vlm视觉模型的调用
+       正则的使用
+       滑动窗口限制
+   3. 总结文档切割的思路(步骤和原则)
