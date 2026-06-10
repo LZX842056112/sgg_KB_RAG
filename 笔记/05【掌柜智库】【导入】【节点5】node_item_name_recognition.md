@@ -349,8 +349,10 @@ def generate_embeddings(texts):
 # 1. 安装 Python 编译必备的工具和依赖库
 yum install -y zlib-devel bzip2-devel openssl-devel ncurses-devel sqlite-devel readline-devel tk-devel gcc make libffi-devel
 
+sudo apt install -y build-essential zlib1g-dev libbz2-dev libssl-dev libncurses5-dev libsqlite3-dev libreadline-dev tk-dev libffi-dev
+
 # 2. 创建 Python3.8 专属安装目录，避免和系统Python冲突
-mkdir -p /usr/local/python3.8
+sudo mkdir -p /usr/local/python3.8
 
 # 3. 下载 Python3.8.16 源码包（稳定版，适配Milvus客户端）
 wget https://www.python.org/ftp/python/3.8.16/Python-3.8.16.tgz
@@ -434,7 +436,7 @@ docker rm -f attu
 # 关键：MILVUS_URL 填写Milvus服务器的IP+默认端口19530（本地部署填127.0.0.1:19530，远程服务器填公网/内网IP）
 docker run -d --name attu \
     -p 8000:3000 \  # 宿主机8000端口映射容器3000端口
-    -e MILVUS_URL=47.94.86.115:19530 \
+    -e MILVUS_URL=192.168.247.150:19530 \
     zilliz/attu:v2.4.0
 ```
 

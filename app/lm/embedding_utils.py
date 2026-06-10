@@ -5,6 +5,7 @@ from app.conf.embedding_config import embedding_config
 # 模型单例对象，避免重复初始化
 _bge_m3_ef = None
 
+
 def get_bge_m3_ef():
     """
     获取BGE-M3模型单例对象，自动加载环境变量配置
@@ -70,21 +71,34 @@ def generate_embeddings(texts):
 
         # 初始化稀疏向量处理结果，解析为字典格式（适配序列化/存储）
         processed_sparse = []
+        # # 把模型输出的 CSR 稀疏矩阵 ，按“每条文本一行”拆成 {特征索引: 权重} 字典
+        # # - indices ：非零元素的“列号（特征ID）”
+        # # - data ：对应列号的权重值
+        # # - indptr ：每一行在 indices/data 里的起止位置指针
+        # # 数据示例:
+        # # indices = [3, 8, 20, 1, 9]
+        # # data    = [0.7, 0.2, 0.1, 0.6, 0.4]  -> milvus -> 稠密向量 [1024] 稀疏向量 : {index:值,index:值}
+        # # indptr  = [0, 3, 5]
+        # # 获取对应的数据
+        # # - 第0条文本用 0:3 => indices=[3,8,20] , data=[0.7,0.2,0.1]
+        # # - 第1条文本用 3:5 => indices=[1,9] , data=[0.6,0.4]
         for i in range(len(texts)):
             # 提取第i个文本的稀疏向量索引：np.int64 → Python int（满足字典key可哈希要求）
             sparse_indices = embeddings["sparse"].indices[
-                embeddings["sparse"].indptr[i]:embeddings["sparse"].indptr[i + 1]
-            ].tolist()
+                             embeddings["sparse"].indptr[i]:embeddings["sparse"].indptr[i + 1]
+                             ].tolist()
             # 提取第i个文本的稀疏向量权重：np.float32 → Python float（适配JSON序列化/接口返回）
             sparse_data = embeddings["sparse"].data[
-                embeddings["sparse"].indptr[i]:embeddings["sparse"].indptr[i + 1]
-            ].tolist()
+                          embeddings["sparse"].indptr[i]:embeddings["sparse"].indptr[i + 1]
+                          ].tolist()
             # 构造{特征索引: 归一化权重}的稀疏向量字典
             sparse_dict = {k: v for k, v in zip(sparse_indices, sparse_data)}
             processed_sparse.append(sparse_dict)
 
         # 构造最终返回结果，稠密向量转列表（解决numpy数组不可序列化问题）
         result = {
+            # embeddings["dense"] = [[1稠密向量],[2稠密向量],[...]  -> 1024]
+            # embeddings["sparse"] = [[1稀疏向量],[2稠密向量],[...]  -> 1024]
             "dense": [emb.tolist() for emb in embeddings["dense"]],  # 嵌套列表，与输入文本一一对应
             "sparse": processed_sparse  # 字典列表，模型已做L2归一化
         }

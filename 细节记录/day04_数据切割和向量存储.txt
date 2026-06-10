@@ -1,0 +1,133 @@
+
+1. node_document_split切割步骤分析
+   作用: 对应md_content进行合理的切割!
+   入参: md_content / file_title [不要后缀名] / md_path
+   出参: chunks  [{content,title,parent_title,part,file_title},{}]
+   宏观步骤:
+      1. 任务 + 日志处理
+      2. 数据校验和清晰 step_1_validate_clean
+      3. 按照语义进行数据切割 step_2_data_chunk_title [文档中没有标题]
+      4. 检查有没有超过指定的块,进行二次细分切割 step_3_data_refine_chunk
+      5. 完善数据格式,补齐part parent_title step_4_data_deal
+      6. 数据备份处理,chunk.json  step_5_backup_data
+      7. 修改state属性 chunks -> chunk切块列表即可
+   细化步骤:
+      1.数据校验和清晰 step_1_validate_clean
+        入参: state [md_content , file_title , md_path]
+        出参: md_content [被清洗过]  file_title
+        步骤:
+            1. 获取数据  md_content , file_title , md_path
+            2. md_content进行非空校验 空->异常
+            3. md_content不为空 -> 数据清洗 -> 字符串统一替换
+            4. file_title进行非空判断 -> 空 -> 通过md_path获取file_title
+            5. 返回数据即可
+     2. step_2_data_chunk_title
+        作用: 根据标题进行切块处理
+        入参: md_content , file_title
+        出参: chunks = [{content,file_title,title}]
+        步骤:
+
+        ## 标题1 \n   -> current_title
+        文本内容 \n
+        ```   -> True
+        # 注释
+        python          -> current_title_lines
+        # 注释
+        # 注释
+        ```   -> False
+
+        ```   -> True
+        ```   -> False
+        ![]() \n
+        文本内容 \n
+        <table> \n
+
+           reg = re.compile(r"^\s*#{1,6}\s.+")
+           chunks = []
+           current_title = 标题  ## 标题1 \n
+           title_lines = [文本内容 \n,![]() \n,<table> \n]
+           is_code_block = False  [进入 和 出去]
+           chunk_size = 0
+
+           1. 先根据 \n 换行将md 按行切割  [行,行,行,行]
+           2. 循环每行数据  行
+              判断是否进入了代码块
+              if line.start_with("```") or line.start_with("~~~"):
+                 is_code_block = not is_code_block
+                 title_lines.append(line)
+                 continue
+
+              if 行 == 标题reg.match(line) (reg. finditer search  match[最推荐]  findall sub) #  and not is_code_block:
+                 if current_title:
+                     # 计算
+                     上一个标题的内容进行转存 -> chunk {title : current_title , content = title_lines \n , file_title = xx}
+                 # 清空
+                 current_title = 本次的行
+                 title_lines = []  / [current_title]
+                 chunk_size += 1
+              else 行 != 标题
+                 title_lines.append(line)
+           3. 硬性处理最后一个内容
+               上一个标题的内容进行转存 -> chunk {title : current_title , content = title_lines \n , file_title = xx}
+               chunk_size += 1
+
+           4. 文档没有标题
+              chunks == 0
+
+              chunks.append({
+                   title: "file_title",
+                   file_title:  "file_title",
+                   content: md_content
+              })
+
+           return chunks
+            ## 标题2 \n  -> line
+            文本内容 \n
+            ![]() \n
+            文本内容 \n
+            <table> \n
+
+            1.表格数据单独处理 [问数]
+            2.连续标题 放弃 / 向下融合
+            3.代码块
+
+    3. step_3_data_refine_chunk / part parent_title step_4_data_deal
+       作用: 将超过执行size的标题内容,1000字符,进行二次切分,二次切分产生:  parent_title part
+       入参: chunks
+       出参: chunks   part parent_title
+       步骤:
+          1. 先定义langchain提供的递归切割器 [块大小,重叠部分,切割符号]
+          2. 循环原来的chunks
+          3. 获取每块的content长度
+          4. 没有超过 -> 不需要 -> part parent_title
+          4. 超过 -> 递归切割器 二次切割
+          5. 最终记录结果 final_chunks
+          6. 返回结果即可
+
+2. 进行item_name识别以及向量存储
+    作用: 识别chunks中对应的item_name,并且转成向量,存储到向量数据库!! chunks -> item_name
+    入参: chunks file_title [兜底]
+    出参: item_name -> state[item_name] | state['chunks'] = chunks (item_name)
+    宏观步骤:
+        1. 日志和任务添加
+        2. 检查chunks和file_title
+        3. chunks拼接了提示词的上下文
+        4. 调用模型获取item_name,如果没有进行file_title兜底
+        5. 修改state和chunks
+        6. item_name生成稠密和稀疏向量
+        7. 准备集合和插入数据milvus中
+        8. 任务和日志处理
+3. 处理chunks对应的向量
+
+4. 将chunks内容进行存储
+
+
+
+
+
+
+
+
+
+
+
