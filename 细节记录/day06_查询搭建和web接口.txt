@@ -1,0 +1,26 @@
+
+1. sse重点理解
+   sse的作用: 后端单向前端推送数据! 本次: 查询以后,流式的结果推送
+   sse使用模式:
+      基本使用  前后 EventSource  onMessage  == 后端 StreamingResponse
+      传入参数  前后 EventSource  onMessage  = url / {session_id } = 后端 StreamingResponse  [1 2 3 ]
+      异步任务+传递数据   一个接口启动异步任务 ->   [货架子 容器 队列 异步队列]  <-  一个接口负责给前端返回流式数据
+      异步任务+传递数据+事件类型  一个接口启动异步任务 ->   [货架子 {字典 event : data}]  <-  一个接口负责给前端返回流式数据 -> event: 事件\n data: 数据\n\n
+
+2. query查询接口设计和说明
+
+   1. html页面导入
+   2. 定义对应api server.py
+   3. 导入开头配置
+   4. 返回html页面
+   5. 检查状态接口
+   6. 提问查询接口
+   7. 流式结果处理接口
+   8. 问题解决 (final顺序 + task任务为清空问题)
+
+3. 进入目标
+   1. 确保进度正常 (课上和课下)
+   2. 理解task | sse区别和关联
+   3. sse代码 跑一遍
+   4. mongodb的使用和命令
+   5. 明天早上有晨考
