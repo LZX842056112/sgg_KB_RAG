@@ -1,0 +1,169 @@
+
+1. node_bge_embedding节点实现
+   作用: chunk的内容生成稠密和稀疏向量,注意批量生成,考虑content增强
+   入参: chunks 没有稠密和稀疏向量
+   出参: chunks 有稠密和稀疏向量
+   宏观步骤:
+      1.日志和任务添加
+      2.数据校验chunks
+      3.进行批量的向量生成
+         state[chunks] = chunks
+      4.日志和任务处理
+   细化步骤:
+      数据校验chunks
+        参数: state -> chunks
+        返回: chunks
+        1.获取state chunks
+        2.非空检验,空 -> 抛出异常
+      进行批量的向量生成
+        参数: 校验好的chunks
+        返回: chunks -> 有向量
+        1. 准备一个列表,装chunk(有向量的)
+        2. 开启循环(+5)  index range(0,total,5)
+        3. 截取5个chunk  chunks[index:index+5]
+        4. 定一个列表,存储每个chunk要生成的向量字符串
+        5. 嵌套循环处理每个chunk  主体:{item_name},内容:{content} -> 列表
+        6. result =  嵌入式模型工具生成向量(定一个列表)
+           result = {
+                dense:[1,2,...],
+                sparse:[1,2,...]
+           }
+        7.  0 1 2 3 4  = range(len(chunks))
+            0 -> 截取5个chunk  -> chunk . copy -> 新
+            新 -> 0 -> result
+            新 -> 准备一个列表,装chunk(有向量的)
+        8. 返回最新的chunks
+
+2. node_import_milvus.py
+   作用: chunks -> 添加到向量数据库
+   入参: chunks (属性完整)
+   出参: chunks
+   宏观步骤:
+      1. 校验chunks
+      2. 准备集合相关工作
+      3. 删除旧数据 item_name
+      4. 插入新数据即可
+      5. 完事了
+   细化步骤:
+      1. 校验chunks
+      2. 准备集合相关工作
+         检查集合是否存在
+         存在创建集合
+      3. 删除旧数据 item_name
+         直接根据item_name进行删除即可
+      4. 插入新数据即可
+         直接插入即可 insert
+
+
+
+3. fastapi使用回顾
+  3.1 接收参数
+      路径传递参数:  /xx/xx/{id}   -> 指定的资源 具体的资源  id = 1
+          @app.get("/xx/xx/{id}")
+          def xxxxxx(id:str)
+      路径后传参数:  /xxx/xxx?id=1&age=19   id 大于1的用户 使用 ? 传递参数   分页查询 -> 第几页 page  每页显示几条 pageSize
+          @app.get("/xxx/xx")   ? name & age
+          def xxxxxx(name,age)
+      请求体传参数:  /xxx/xxx   requestBody  json {dict} | 文件.... {文件}
+          get delete -> 没有请求体   put post -> 有请求体
+
+          class User(BaseModel)
+             name:str
+             age:xxx
+          @app.post(/xx/xx)  {name:二狗子,age:18}
+          def xxxx(user:User)
+
+          post -> /file/upload  => 请求体  file : 文件的字节数据
+          @app.post(/file/upload)
+          def xxxxx(file:UploadFile = File(...,max_size=大小限制...))
+
+      http协议: 超文本(文本 普通的字符 人 和 超文本 超越字符限制 字节 超人) (客户端) 传输 (服务端) 协议 (规定和合同) [数据格式]
+
+                            --->  4部分: 请求行\n请求头\n \n\n请求空行 请求体  ---> 请求 [get delete 2部分 请求行\n请求头
+                                                                                    put post 4部分]
+                客户端                                                                 服务端
+                            <---  4部分: 状态行\n响应头\n \n\n响应空行 响应体 ---- [响应一定是四部分]
+                json -> JSON -> JavaScript Object Notation ->  js一种对象的定义形式 -> {key:value,key:{}}
+      删除用户指定id = 1
+          /user/delete?id = 1    http请求方式 get  [不推荐]
+          /user/1    http请求方式 delete  [标准的restful]
+      restful:  http协议最标准的使用方案!!  url是资源的标识应该是名词! 具体对资源的动作使用对应的请求方式 get post put delete
+      http协议: url(指向后台资源) 请求方式(get post put delete) 参数 [路径/路径后/请求体] 响应
+               url 统一资源定位符 [网络标识]  标识 名词  ||  二狗子 驴蛋蛋 狗剩子 -> 人的名字 标识  蹦蹦跳跳二狗子 傻里傻气驴蛋蛋 本吧垃圾狗剩子
+               /user/delete?id=1  [带了动词]  /user/1
+               请求方式: delete 删除 id = 1的用户!!  get 获取 id = 1 的用户  put 更新id = 1 的用户
+  3.2 响应数据
+      响应json:
+      class User(BaseModel)  Dict
+         name:str
+         age:xxx
+       def xx(接收参数):
+           编写了业务
+           return user | dict | {key:value}
+      响应文件:
+           1. html页面
+           2. 下载功能
+           return FileResponse(path="返回文件的地址",content_type="image/jpeg")
+  3.3 流式处理 / 异步处理
+
+       from fastapi.responses import StreamingResponse
+        import asyncio
+
+        async def generate_stream():
+            # 模拟流式输出（逐字返回）
+            words = ["你", "好", "，", "这", "是", "流", "式", "响", "应"]
+            for word in words:
+                await asyncio.sleep(0.5)
+                yield word.encode("utf-8")  # 流式输出需返回字节流
+
+        @app.get("/stream")
+        async def stream_response():
+            return StreamingResponse(generate_stream(), media_type="text/event-stream")
+
+       异步处理
+
+        def do(name:str):
+            pass
+
+        @app.get("/do/main")
+        async  def  do_main(background_task:BackgroundTasks):
+            # 开启一个异步任务 [工作耗时 10s]
+            # 怎么把函数 -> 扔到fastapi -> 开启的event_loop
+            background_task.add_task(do,"二狗子")
+            return {"code":200}
+
+
+4. 导入的接口实现
+
+   1. 页面粘贴到 import_process / page / import.html
+   2. 定义个server.py (接口) import_process / api / server.py
+   3. 实现接口
+      1.返回import.html页面
+        06_掌柜智库项目\资料\模块代码\import_process\page
+      2.前端上传文件 /并且开启异步的处理流程
+      3.前端根据任务id查询当前任务的进度
+
+
+
+5. 今日目标
+   1. import流程代码完毕 (embedding / import_milvus)
+   2. 熟悉了fastapi [接收参数(路径 ? json 文件) 响应数据 (json , file ) 流式返回 (streamingResponse text/event-stream) 上传文件  异步任务]
+   3. 导入模块的server的三个接口实现
+   4. 导入模块的总结 [节点 + 方法即可]
+         node_entry
+           xxx
+           xxx
+           xx
+         node_pdf_to_md
+           xxx
+           xxx
+           xx
+           xxx
+
+
+
+
+
+
+
+

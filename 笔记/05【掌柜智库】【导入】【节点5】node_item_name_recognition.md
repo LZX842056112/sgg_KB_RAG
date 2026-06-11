@@ -438,6 +438,12 @@ docker run -d --name attu \
     -p 8000:3000 \  # 宿主机8000端口映射容器3000端口
     -e MILVUS_URL=192.168.247.150:19530 \
     zilliz/attu:v2.4.0
+
+
+docker run -d --name attu \
+    -p 8000:3000 \
+    -e MILVUS_URL=192.168.247.150:19530 \
+    zilliz/attu:v2.4.0
 ```
 
 **第五步：Attu 连接测试（验证 Milvus 部署成功）**
