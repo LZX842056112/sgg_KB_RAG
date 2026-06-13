@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 # 导入pymongo核心模块：MongoDB原生Python驱动，实现数据库连接和操作
 # ASCENDING：表示升序排序，用于MongoDB索引和查询排序
-from pymongo import MongoClient, ASCENDING
+from pymongo import MongoClient, ASCENDING, DESCENDING
 # 导入bson的ObjectId：MongoDB默认的主键类型，用于唯一标识文档
 from bson import ObjectId
 # 导入dotenv模块：用于从.env文件加载环境变量，避免硬编码敏感配置（如MongoDB连接地址）
@@ -24,6 +24,7 @@ class HistoryMongoTool:
     核心功能：封装MongoDB的连接、集合初始化、索引创建，为上层提供统一的数据库操作入口
     扩展功能：支持与LangChain消息对象的格式转换（原代码预留能力）
     """
+
     def __init__(self):
         """
         类初始化方法：完成MongoDB的连接、数据库/集合获取、索引创建
@@ -37,9 +38,9 @@ class HistoryMongoTool:
 
             # 创建MongoDB客户端实例，建立与数据库的连接
             self.client = MongoClient(self.mongo_url)
-            # 获取指定名称的数据库对象
+            # 获取指定名称的数据库对象 user 库
             self.db = self.client[self.db_name]
-            # 获取对话记录的集合（相当于关系型数据库的表），集合名：chat_message
+            # 获取对话记录的集合（相当于关系型数据库的表），集合名：chat_message  db.chat_message
             self.chat_message = self.db["chat_message"]
 
             # 为chat_message集合创建复合索引，提升查询性能
@@ -68,6 +69,7 @@ except Exception as e:
     # 原因：模块加载阶段的异常可能导致整个程序启动失败，此处保留懒加载兜底（get_history_mongo_tool会再次尝试创建）
     logging.warning(f"Could not initialize HistoryMongoTool on module load: {e}")
 
+
 def get_history_mongo_tool() -> HistoryMongoTool:
     """
     获取HistoryMongoTool的单例实例（懒加载模式）
@@ -81,7 +83,6 @@ def get_history_mongo_tool() -> HistoryMongoTool:
         _history_mongo_tool = HistoryMongoTool()
     # 返回单例实例
     return _history_mongo_tool
-
 
 
 def clear_history(session_id: str) -> int:
@@ -175,7 +176,7 @@ def update_message_item_names(ids: List[str], item_names: List[str]) -> int:
         result = mongo_tool.chat_message.update_many(
             # 更新条件：复合条件，同时满足
             {
-                "_id": {"$in": object_ids}# 主键在指定的ID列表中（批量筛选）
+                "_id": {"$in": object_ids}  # 主键在指定的ID列表中（批量筛选）
             },
             {"$set": {"item_names": item_names}}  # 更新操作：设置新的商品名称列表
         )
@@ -208,7 +209,7 @@ def get_recent_messages(session_id: str, limit: int = 10) -> List[Dict[str, Any]
         # find(query)：获取符合条件的游标（惰性加载，不立即查询）
         # sort("ts", ASCENDING)：按ts字段升序（从旧到新），适配LLM上下文顺序
         # limit(limit)：限制返回的最大条数
-        cursor = mongo_tool.chat_message.find(query).sort("ts", ASCENDING).limit(limit)
+        cursor = mongo_tool.chat_message.find(query).sort("ts", -1).limit(limit)
         # 将游标转为列表，触发实际数据库查询，获取所有符合条件的文档
         messages = list(cursor)
         # 返回查询结果列表

@@ -129,7 +129,7 @@ def create_hybrid_search_requests(dense_vector, sparse_vector, dense_params=None
     """
     # 稠密向量默认搜索参数：余弦相似度（COSINE），适配BGE-M3稠密向量并与建库参数保持一致
     if dense_params is None:
-        dense_params = {"metric_type": "COSINE"}
+        dense_params = {"metric_type": "IP"}
     # 稀疏向量默认搜索参数：内积（IP），适配BGE-M3稀疏向量
     if sparse_params is None:
         sparse_params = {"metric_type": "IP"}
@@ -139,7 +139,7 @@ def create_hybrid_search_requests(dense_vector, sparse_vector, dense_params=None
         data=[dense_vector],
         anns_field="dense_vector",
         param=dense_params,
-        expr=expr,
+        expr=expr,  # 混合搜索的过滤条件   # 单列搜索 过滤条件 filter =
         limit=limit
     )
 
@@ -188,7 +188,7 @@ def hybrid_search(client, collection_name, reqs, ranker_weights=(0.5, 0.5), norm
             output_fields=output_fields,
             search_params=search_params
         )
-
+        # res [[{id:111,distance:0.9,entity:{item_name:烫金机}},{},{},{},{}]]  || data = [1,2,3] => [[],[],[]]
         logger.info(f"Milvus混合搜索完成，集合[{collection_name}]共检索到{len(res[0])}条结果")
         return res
     except Exception as e:

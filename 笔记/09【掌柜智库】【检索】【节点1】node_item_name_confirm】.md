@@ -136,6 +136,7 @@ def node_item_name_confirm(state: QueryGraphState) -> QueryGraphState:
     logger.debug(f"Node: 用户消息已初始保存, ID: {message_id}")
 
     # 3. 提取信息
+    # {item_names:[] ,rewritten_query:"问题"}
     extract_res = step_3_extract_info(original_query, history)
     item_names = extract_res.get("item_names", [])
     rewritten_query = extract_res.get("rewritten_query", original_query)
@@ -147,7 +148,12 @@ def node_item_name_confirm(state: QueryGraphState) -> QueryGraphState:
 
     # 4. & 5. 如果有提取到商品名，进行搜索和对齐
     if len(item_names) > 0:
+        # 返回结构 [{extracted_name:原搜索item_name,matches:[{item_name:匹配名字,score:得分}]}]
         query_results = step_4_vectorize_and_query(item_names)
+        # {
+                 "confirmed_item_names": ["确认商品名1", "确认商品名2"],  # 去重后的确认商品名，无则空列表
+                 "options": ["候选商品名1", "候选商品名2", ...]          # 去重后的候选商品名，无则空列表
+             }
         align_result = step_5_align_item_names(query_results)
     else:
         logger.info("Node: 未提取到商品名，跳过向量检索")

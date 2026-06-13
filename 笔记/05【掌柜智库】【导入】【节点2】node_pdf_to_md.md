@@ -103,8 +103,6 @@ from app.utils.task_utils import add_running_task, add_done_task
 from app.conf.mineru_config import mineru_config
 ```
 
-
-
 #### 2. 主流程定义 (Main Flow)
 
 定义 `node_pdf_to_md` 入口函数，清晰展示三个主要步骤的调用关系。
@@ -445,6 +443,7 @@ def step_3_download_and_extract(zip_url:str, output_dir_pbj:Path, stem:str):
     # with ZipFile("test.zip", "w") as zip_write:
     #     zip_write.write("a.txt")   # 把 a.txt 打进压缩包
 	# shutil.unpack_archive(zip_file_path_obj, extract_dir_path_obj)
+    # shutil.make_archive("压缩后的文件名", "zip", "要压缩的文件夹路径")
     # 4. 处理下md文件,统一姓名,并且返回md的字符串地址
     # 获取全部文件
     md_file_list = list(extract_target_dir.rglob("*.md"))

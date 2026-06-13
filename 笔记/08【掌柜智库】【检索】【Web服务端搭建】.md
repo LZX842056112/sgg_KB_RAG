@@ -4,7 +4,7 @@
 
 ### 8.1 SSE快速入门
 
-SSE (**Server-Sent Events**) 是一种 **基于 HTTP 的服务端单向推送** 技术：浏览器用一个长连接（通常是 GET）订阅，服务端持续向这个连接 **按事件（event）流式写数据**，浏览器按事件回调接收。
+SSE (SHE) (**Server-Sent Events**) 是一种 **基于 HTTP 的服务端单向推送** 技术：浏览器用一个长连接（通常是 GET）订阅，服务端持续向这个连接 **按事件（event）流式写数据**，浏览器按事件回调接收。
 
 - **单向推送**：服务端 → 客户端（客户端发消息仍走普通 HTTP 请求）
 - **事件化**：每条消息带 event 类型 + data 数据
@@ -23,7 +23,7 @@ SSE (**Server-Sent Events**) 是一种 **基于 HTTP 的服务端单向推送** 
 SSE 协议规定了服务端向前端推送数据的**固定核心格式**，前端需按此解析，具体规则如下：
 
 ```text
-[可选] event: <事件名> 用于分类数据（如progress进度、result答案、error报错），前端可按事件名单独处理；
+[可选] event: <事件名> 用于分类数据（如progress进度、result答案、error报错），前端可按事件名单独处理； \n
 必填   data: <数据内容>\n\n 必填：\n\n（两个连续换行符，作为单条数据的结束标识）
 （扩展）id: <唯一ID>/retry: <重连毫秒数>：可选，用于断点续传、自定义重连时间。
 ```
@@ -60,7 +60,7 @@ async def simple_stream():
         # 模拟推5条消息，每秒1条
         for i in range(5):
             # ✅ 核心：SSE固定格式 data: 内容\n\n
-            # yield f"event:自定义\ndata:xxxx\n\n"
+            # yield f"event:自定义\n"
             yield f"data: 这是第{i+1}条测试消息\n\n"
             await asyncio.sleep(1)  # 每秒推1条
 
@@ -909,55 +909,62 @@ class QueryRequest(BaseModel):
 这是最关键的逻辑部分，包含后台任务处理函数 `run_query_graph` 和 API 接口 `/query`。
 
 ```python
-# 核心查询处理函数
-def run_query_graph(session_id: str, user_query: str, is_stream: bool = True):
-    logger.info(f"[{session_id}] 开始执行查询流程，流式模式：{is_stream}")
-    default_state = {"original_query": user_query, "session_id": session_id, "is_stream": is_stream}
+def run_query_graph(query: str, session_id: str, is_stream: bool):
+    # 一会回调用 main_graph执行
+    # 本次任务开启了！ is_stream = True 把结果加入到队列，sse可以取到
+    # 清理上一次任务状态，避免缓存污染
+    clear_task(session_id)
+    update_task_status(session_id, "processing", is_stream)
+
+    state = create_query_default_state(
+        session_id=session_id,
+        original_query=query,
+        is_stream=is_stream
+    )
     try:
-        query_app.invoke(default_state)
-        update_task_status(session_id, TASK_STATUS_COMPLETED, is_stream)
-        logger.info(f"[{session_id}] 查询流程执行完成")
+        query_app.invoke(state)
+        # 本次任务开启了！ is_stream = True 把结果加入到队列，sse可以取到
+        update_task_status(session_id, "completed", is_stream)
     except Exception as e:
-        logger.exception(f"[{session_id}] 查询流程异常：{str(e)}")
-        update_task_status(session_id, TASK_STATUS_FAILED, is_stream)
-        if is_stream:
-            push_to_session(session_id, SSEEvent.ERROR, {"error": str(e)})
+        logger.exception(f"---session_id = {session_id},查询流程出现异常！！{str(e)}")
+        # 修改 event = process
+        update_task_status(session_id, "failed", is_stream)
+        # 推送指定类型的事件
+        push_to_session(session_id, SSEEvent.ERROR, {"error": str(e)})
 
-# 查询接口
-@app.post("/query")
-async def query(background_tasks: BackgroundTasks, request: QueryRequest):
+@app.post("/query")  # 客户端 -》 问题 -》 graph开启了 -》 查到rag的结果 -》 返回即可！！
+async def query(request: QueryRequest,background_tasks: BackgroundTasks):
     """
-    1 解析参数
-    2 更新任务状态
-    3 调用处理流程图
-    4 返回结果
+    :param request: 请求参数
+    :param background_tasks: 异步执行函数  is_stream = True
+    :return:
     """
-    user_query = request.query
-    session_id = request.session_id if request.session_id else str(uuid.uuid4())
+    query = request.query
+    session_id = request.session_id or str(uuid.uuid4())
     is_stream = request.is_stream
-
+    # 判断是不是流式处理 （异步 -》 先返回一个结果 开始处理 | 后台运行图，结果向前端推送）
     if is_stream:
+        # 只要开启流式处理，我们业务中就是将数据，插入到队列中！ {session_id , queue [update_task_state , add_running_task,add_done_list]}
+        # 创建当前session_id对应的队列 =》 _session_stream
         create_sse_queue(session_id)
-        logger.info(f"[{session_id}] 已创建 SSE 消息队列")
-
-    update_task_status(session_id, TASK_STATUS_PROCESSING, is_stream)
-    logger.info(f"[{session_id}] 任务开始处理，查询内容：{user_query}")
-
-    if is_stream:
-        background_tasks.add_task(run_query_graph, session_id, user_query, is_stream)
-        logger.info(f"[{session_id}] 流式任务已提交至后台执行")
+        # 异步执行  立即返回结果前端 || 中间的过程 sse 一点一点推送给前端
+        background_tasks.add_task(run_query_graph, query, session_id, is_stream)
+        logger.info(f"query:{query}已经开启了异步和流式处理！！")
         return {
-            "message": "结果正在处理中...",
-            "session_id": session_id
+            "session_id": session_id,
+            "message": "本次查询处理中...."
         }
     else:
-        run_query_graph(session_id, user_query, is_stream)
-        answer = get_task_result(session_id, "answer", "")
-        logger.info(f"[{session_id}] 非流式查询处理完成")
+        # 同步执行
+        run_query_graph(query, session_id, is_stream)
+        # 获取最后一个节点插入的结果！ node_answer_output (answer)
+        answer = get_task_result(session_id,"answer")  # task_utils 封装的一个存储会话结果函数
+        # 返回对应的json数据即可
+        logger.info(f"query:{query}开启同步处理！处理结果为：{answer}!")
         return {
-            "message": "处理完成！",
-            "session_id": session_id,
             "answer": answer,
+            "session_id": session_id,
+            "message": "本次查询处理完毕！",
             "done_list": []
         }
         
@@ -1118,6 +1125,8 @@ db.users.insertMany([
 
 **3. 查询文档 (Read)**
 
+https://www.mongodb.com/zh-cn/docs/manual/reference/mql/expressions/
+
 ```javascript
 // 1. 查询所有数据
 // 语法: db.collection.find(query, projection)
@@ -1138,7 +1147,7 @@ db.users.find({ city: "Beijing", age: { $lt: 30 } })
 
 // 示例：查询 city 为 "Beijing" 或者 "Shanghai" 的数据
 db.users.find({ $or: [ { city: "Beijing" }, { city: "Shanghai" } ] })
-
+db.users.find({ age:18, and  $or: [ { city: "Beijing" }, { city: "Shanghai" } ] })
 // 5. 包含查询 ($in)
 // 示例：查询 age 在 [25, 30] 中的数据
 db.users.find({ age: { $in: [25, 30] } })
@@ -1202,6 +1211,8 @@ https://www.mongodb.com/zh-cn/docs/manual/core/indexes/index-types/index-compoun
 // 索引本身就是排好序的结构 (MongoDB 默认是 WiredTiger 索引树(B树))
 // 创建时写 1 或 -1，就是告诉 MongoDB：
 // 这个索引按什么顺序存
+// 单列索引,频繁使用字段查询的时候才需要创建!
+// 1 -1 额外创建一个高效查询的数据结构 1 正序 -1倒序 对于我们来说没有区别!!
 db.users.createIndex({ name: 1 })        // 给 name 建索引
 db.users.createIndex({ age: -1 })        // 给 age 倒序索引
 // 1  索引数据 正序排列  
@@ -1213,6 +1224,10 @@ db.users.createIndex({ age: -1 })        // 给 age 倒序索引
 // 最左匹配原则：顺序非常重要！ 用法： 1个联合索引顶多个单个索引 （多）
 // 先按 city 从小到大排序（1） 用法： 条件 （1 -1 无所谓） + 排序 （排序规则 正 1 倒 -1）
 // city 一样的，再按 age 从大到小排序（-1）
+
+// 最左匹配原则  {a,b,c}  a b c  |  a b  | a  不会触发  a c | b c  | c
+// 优势1: 盖中盖 一个联合索引 顶多个单列索引 事实上没有意义 
+// 优势2: 查询 + 排序  第一列查询列 1 -1 随便  排序列: 必须等于排序规则 1 -1 
 db.users.createIndex({ city: 1, age: -1 })
 // db.users.find({ city: "北京" }).sort({ age: -1 })
 // 数据已经按 city 分组、age 倒序排好了！直接返回，不用再排序。
@@ -1235,10 +1250,10 @@ db.users.find({ name: "张三" }).explain()
 {
     "session_id": "",
     "role": "",
-    "text": "",
+    "text": "",  //原问题 他好用么?  -> lm  烫金机是否好用?
     "rewritten_query": "",
-    "item_names": [],
-    "ts": 123
+    "item_names": [], //问题 答案 关联的实体
+    "ts": 123  //时间戳  倒序 10
 }
 ```
 

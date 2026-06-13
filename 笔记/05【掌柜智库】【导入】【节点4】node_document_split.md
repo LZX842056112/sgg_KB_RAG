@@ -58,8 +58,8 @@
 1. 语义拆分（第一步）：按「标题层级」切分，一级标题（#）拆分为大模块，二级标题（##）拆分为子模块，以此类推，确保每个模块对应一个完整的知识点；
 2. 代码块保护：识别代码块标记（```/~~~），代码块整体保留，不拆分、不切割（哪怕代码块过长，也单独作为一个 Chunk，避免代码不可读）；
 3. 长度优化（第二步）：
-   - 若单个标题下的内容过长（如超过 2000 (自行设定)字符），按「段落」拆分，优先在段落空行处切割，不切断步骤、不切断代码；
-   - 若单个标题下的内容过短（如 < 300 字符），且与相邻子标题属于同一知识点，合并为一个 Chunk；
+   - 若单个标题下的内容过长（如超过 2000 (自行设定)token），按「段落」拆分，优先在段落空行处切割，不切断步骤、不切断代码；
+   - 若单个标题下的内容过短（如 < 300 token），且与相邻子标题属于同一知识点，合并为一个 Chunk；
 4. 细节补充（第三步）：
    - 重叠率：5%~8%（如 2000 字符的 Chunk，重叠 100~160 字符）；
    - 元数据：保留「父标题（上级标题）、当前标题、文件名」，便于追溯知识点所属模块。
@@ -131,21 +131,21 @@
 
 2. **按标题语义初切 (Step 2)**
 
-   基于 Markdown 标题语法（`#` ~ `######`）进行**语义级切分**，自动跳过代码块内的标题匹配，避免误切注释，保证每个块语义完整。
+   基于 Markdown 标题语法（`#` ~ `######`）进行**语义级切分**，自动跳过代码块内的标题匹配，避免误切注释，保证每个块语义完整。 [{content,file_title,title}]
 
 3. **无标题文档兜底处理 (Step 2 内置)**
 
    若文档无任何标题，自动生成默认标题 `无主题`，确保内容不丢失、流程不中断。
 
-4. **超长块递归精细化切割 (Step 3)**
+4. **超长块递归精细化切割 (Step 3)**    [{content,file_title,title ,parent_title , part }]
 
    使用 `RecursiveCharacterTextSplitter` 对**超过指定长度**的语义块进行二次切割，按「段落 → 换行 → 句子 → 空格」优先级切割，**不产生碎片、不硬断句子、无需手动合并**。
 
-5. **构建标准 Chunk 结构**
+5. **构建标准 Chunk 结构 **   chunk -> parent -> title  part -> 1 
 
    为每个切片补充完整元数据：`title`、`content`、`file_title`、`parent_title`、`part` 序号，保证可检索、可溯源。
 
-6. **本地备份与状态更新 (Step 4)**
+6. **本地备份与状态更新 (Step 4)**    备份  state [chunks] = chunk
 
    将切分结果备份到本地 `chunks.json` 文件，同时将最终 chunks 存入 `state`，供后续向量入库使用。
 
@@ -281,7 +281,7 @@ def step_2_split_by_title(md_content, file_title) -> List[Dict]:
             continue
         # 不是代码块,判断是不是标题
         if not in_code_block and title_pattern.match(strip_line):
-            # 到了新的标题,将上一次标题进行除虫脲
+            # 到了新的标题,将上一次标题进行存储
             if current_title:
                 # 存储上一次标题
                 chunks.append({
@@ -373,6 +373,45 @@ def step_3_refine_chunks(sections) -> List[Dict]:
                 "part": idx
             })
     return final_chunks
+
+
+# 新代码 
+@step_log("step_3_refine_chunks")
+def step_3_refine_chunks(sections) -> List[Dict]:
+    """
+      同一标题下,同一语义,进行二次超长切割!!
+    :param sections: 按标题切割数据
+    :return: 二次切割数据
+    """
+    spliter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        # 切割优先级：段落 → 换行 → 句子 → 空格
+        separators=["\n\n", "\n", "。", "！", "；", " "]
+    )
+    # 进行切割
+    final_chunks = []
+    for section in sections:
+        # 进行二次切割
+        if len(section["content"]) <= MAX_LENGTH:
+            final_chunks.append(section)
+            continue
+        # 进行二次切割
+        sub_chunks = spliter.split_text(section["content"])
+        # 生成带编号的子块
+        for idx,chunk in enumerate(sub_chunks,start=1):
+            final_chunks.append({
+                "title": f"{section['title']}_{idx}",
+                "content": chunk.strip(),
+                "file_title": section["file_title"],
+                "parent_title": section["title"],
+                "part": idx
+            })
+    # 补全剩余属性
+    for section in final_chunks:
+        section['part'] = section.get('part') or 1
+        section['parent_title'] = section.get('parent_title') or section.get('title')
+    return final_chunks
 ```
 
 #### 6. 步骤 4: 备份与更新 (Step 4: Backup & Update)
@@ -387,16 +426,9 @@ def step_4_backup_chunks(final_chunks, state):
     :param state: 获取local_dir文件夹
     :return:
     """
-    backup_file_path = Path(state['md_path']).parent / "backup_chunks.json"
-
-    with open(backup_file_path, "w", encoding="utf-8") as f:
-        json.dump(
-            final_chunks,
-            f,
-            ensure_ascii=False, #中文直接原文存储
-            indent=4 # json带有缩进 4
-        )
-    logger.debug(f"数据备份成功,备份地址:{backup_file_path}")
+    backup_path = Path(state["md_path"]).parent / "backup_chunks.json"
+    backup_path.write_text(json.dumps(final_chunks, ensure_ascii=False, indent=4), encoding="utf-8")
+    logger.debug(f"数据备份成功：{backup_path}")
 ```
 
 #### 9. 单元测试 (Unit Test)

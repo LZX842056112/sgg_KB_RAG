@@ -1,0 +1,75 @@
+
+
+1. 完善历史聊天记录相关接口
+
+2. node_item_name_confirm节点实现
+   作用: 识别item_names 和 重写问题
+   条件: 借用模型能力,使用历史聊天记录
+   入参: session_id -> 聊天记录   original_query
+   出参: item_names = []  | written_query | answer 有可能 => state
+   步骤:
+        1. 日志和任务处理 is_stream
+        2. 取值和校验 (original_query | session_id)  step_1  raise ValueError
+        3. 获取历史聊天记录(session_id) => list[message]
+        4. 调用模型进行问题重写和item_name识别 (list[message],original_query) -> {item_names:[],rewritten_query:xx}
+        5. item_names的向量库查询 item_name
+           [
+             {
+               llm_item_name: 二狗子,
+               向量数据库匹配: [
+                   {
+                      item_name:真的name,
+                      score: 0.80
+                   },
+                   {
+                      item_name:真的name,
+                      score: 0.67
+                   }
+               ]
+             },
+
+             {
+               llm_item_name: 三狗子,
+               向量数据库匹配: [
+                   {
+                      item_name:真的name,
+                      score: 0.55
+                   },
+                   {
+                      item_name:真的name,
+                      score: 0.53
+                   }
+               ]
+             }
+           ]
+        6. 进行item_name确认 [确认的item_name名字,可选的item_name名字]
+           每个模型name对应的向量中筛选一个确认的!! 2个!!
+           确认1个 还有一个不确认  按确认的逻辑走
+           都不确认 -> 2个不确认
+           一个都没查到
+           0.7 - 0.6 -> 确认集合
+           0.3 - 0.59 -> 可选集合
+           小于0.3 -> 没有
+           {
+             确认的集合集合:[item_name],
+             可选的集合:[item_name]
+           }
+        7. 判断集合处理结果
+           if 确认的集合集合 不为空:
+              state[item_names] = 确认的集合
+              state[rewritten_query] = rewritten_query
+              del state['answer']
+              return
+           if 可选的集合 不为空:
+              没有确认,有可选
+              state['answer'] = 请您确认以下商品: xx,xxx,xxx是不是你要咨询的?
+              return
+
+           没有
+              state['answer'] = 没有识别本次问题的主体! 无法继续进行...
+              return
+        8. 本次用户的聊天记录进行存储
+
+            聊天记录就行  user text -> 原问题  其他正常存储即可
+        9. 日志和任务处理
+        10. return state

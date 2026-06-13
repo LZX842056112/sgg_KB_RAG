@@ -40,9 +40,14 @@ from fastapi import FastAPI
 
 app = FastAPI()
 
+
+
+ 
+一个接口 : url 请求参数 响应数据
 @app.get("/")
-def read_root():
-    return {"Hello": "World"}
+def read_root(参数):
+    业务逻辑
+    return {"Hello": "World"} 响应数据
 ```
 
 在命令行中运行以下命令以启动应用：
@@ -74,6 +79,10 @@ app = FastAPI()
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
+
+
+# 
+
 
 # 访问 http://127.0.0.1:8000/items/5?q=somequery
 # item_id: 路径参数 (自动转为 int)
@@ -294,8 +303,8 @@ FastAPI 从 `fastapi.responses` 中提供了多种响应类，覆盖不同的使
              yield word.encode("utf-8")  # 流式输出需返回字节流
      
      @app.get("/stream")
-     async def stream_response():
-         return StreamingResponse(generate_stream(), media_type="text/plain")
+     async def stream_response():                             
+         return StreamingResponse(generate_stream(), media_type="text/event-stream")
      ```
 
 7. Response（基础响应类）
@@ -350,7 +359,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 @app.post("/upload",summary="单个文件上传接口")
 async def upload(file: UploadFile = File(
-    ...,
+    ..., None
     description="需要上传的文件（支持图片/文档等)",
     alias="upload_file", #前端参数的别名，默认文件名是file
     media_type="application/octet-stream"
@@ -492,19 +501,21 @@ uv add fastapi uvicorn python-multipart python-dotenv minio
 首先，导入必要的系统库、FastAPI 组件以及我们的工具类 (`minio_utils`, `task_utils`, `main_graph`)。同时加载 `.env` 环境变量。
 
 ```python
+from mimetypes import guess_type
 from pathlib import Path
 import uuid
 import uvicorn
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
-from app.core.logger import logger
+from app.core.logger import logger, PROJECT_ROOT
+from app.import_process.agent.state import get_default_state
 
 from app.utils.task_utils import *
 from app.utils.sse_utils import create_sse_queue, SSEEvent, sse_generator
 from app.clients.mongo_history_utils import *
-from app.query_process.agent.main_graph import query_app
+from app.import_process.agent.main_graph import kb_import_app
 ```
 
 ##### (2) 应用初始化与跨域配置
@@ -512,8 +523,7 @@ from app.query_process.agent.main_graph import query_app
 初始化 FastAPI 应用，并配置 CORS（跨域资源共享）以允许前端调用。
 
 ```python
-# 定义fastapi对象
-app = FastAPI(title="query service", description="掌柜智库查询服务！")
+app = FastAPI(title="import service",description="导入文件处理!")
 
 # 跨域配置
 app.add_middleware(
