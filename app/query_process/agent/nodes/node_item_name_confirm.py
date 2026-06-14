@@ -17,11 +17,12 @@ from app.lm.lm_utils import get_llm_client
 from app.lm.embedding_utils import generate_embeddings
 from app.clients.milvus_utils import get_milvus_client, create_hybrid_search_requests, hybrid_search
 from dotenv import load_dotenv, find_dotenv
-from app.core.logger import logger, node_log
+from app.core.logger import logger, node_log, step_log
 
 load_dotenv(find_dotenv())
 
 
+@step_log("step_1_data_validates")
 def step_1_data_validates(state):
     """
     获取session_id和原始查询内容,并且进行校验处理!
@@ -36,11 +37,13 @@ def step_1_data_validates(state):
     return original_query, session_id
 
 
+@step_log("step_2_chat_history")
 def step_2_chat_history(session_id):
     """历史聊天记录"""
     return get_recent_messages(session_id)
 
 
+@step_log("step_3_llm_itemnames_and_rewrite")
 def step_3_llm_itemnames_and_rewrite(history_message_list, original_query):
     """
     进行item_name和rewritten_query识别
@@ -79,6 +82,7 @@ def step_3_llm_itemnames_and_rewrite(history_message_list, original_query):
 
 
 # @node_log(node_name="node_item_name_confirm")
+@step_log("step_4_vector_query_item_name")
 def step_4_vector_query_item_name(item_names):
     """
        a -> 向量 -> 两个annSearchRequest -> hy_search -> 结果
@@ -112,7 +116,7 @@ def step_4_vector_query_item_name(item_names):
             client=milvus_client,
             collection_name=milvus_config.item_name_collection,
             reqs=reqs,
-            ranker_weights=(0.8, 0.2),  # 稠密向量权重0.8，稀疏向量权重0.2
+            ranker_weights=(0.5, 0.5),  # 稠密向量权重0.5，稀疏向量权重0.5
             norm_score=True,  # 将分调整到 0 - 1 之间比较  [cosine 0 -1  ip  -1 0 1 ]
             # IP 整体分都偏低   -1 0 1  -> 0 - 1 ->  -0.5 + 1 / 2
             # cosine 分基本不变
@@ -156,6 +160,7 @@ def step_4_vector_query_item_name(item_names):
     return vector_dict
 
 
+@step_log("step_5_select_item_name_list")
 def step_5_select_item_name_list(vector_dict):
     """
     作用: 在向量查询的列表中,选出确定和可选的item_name列表
@@ -205,6 +210,7 @@ def step_5_select_item_name_list(vector_dict):
     }
 
 
+@step_log("step_6_deal_state")
 def step_6_deal_state(state, final_result, rewritten_query):
     """
     修改state : answer  item_names rewritten_query
@@ -229,11 +235,16 @@ def step_6_deal_state(state, final_result, rewritten_query):
         # 名字、xxxx
         option_name_str = "、".join(options_item_name_list)
         state["answer"] = f"您是想问以下哪个产品：{option_name_str}？请明确一下型号。"
+        state['item_names'] = []
+        state['rewritten_query'] = rewritten_query
         return
     # 3. 可选都没有,无法确定无法可选,给与提示,明确即可
     state["answer"] = "抱歉，未找到相关产品，请提供准确型号以便我为您查询。"
+    state['item_names'] = []
+    state['rewritten_query'] = rewritten_query
 
 
+@step_log("step_7_save_user_chat_message")
 def step_7_save_user_chat_message(state):
     # 进行用户聊天记录保存
     save_chat_message(
@@ -245,6 +256,7 @@ def step_7_save_user_chat_message(state):
     )
 
 
+@node_log("node_item_name_confirm")
 def node_item_name_confirm(state):
     """
     节点功能：确认用户问题中的核心商品名称。
